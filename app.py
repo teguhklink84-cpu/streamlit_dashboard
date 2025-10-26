@@ -90,3 +90,5 @@ if 'db_connected' not in st.session_state:
 if 'connection_type' not in st.session_state:
     st.session_state.connection_type = None
 # ... (lanjutkan dengan kode app.py Anda yang sudah ada)
+if st.sidebar.button("🔌 Database Connection"):
+    st.switch_page("pages/database_connection.py")
