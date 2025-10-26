@@ -47,7 +47,7 @@ def get_export_path(filename):
 # Streamlit App
 st.set_page_config(page_title="Split CV", layout="wide")
 
-st.title("📊 Split CV Calculator")
+st.title("📊 Split CV")
 st.write("Upload file Excel, sistem akan hitung Split Plan A, RO, dan Balance sesuai rules Country (ID / MY).")
 
 # Upload Excel
