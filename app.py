@@ -1,10 +1,27 @@
 import streamlit as st
+import psycopg2
 import os
 import sys
 import json
 import pandas as pd
 import io
 from datetime import datetime
+
+neon_db = st.secrets["connections"]["neon"]
+
+conn = psycopg2.connect(
+    host=db["ep-dawn-firefly-a1j273g4-pooler.ap-southeast-1.aws.neon.tech"],
+    database=db["neondb"],
+    user=db["neondb_owner"],
+    password=db["npg_HCP4qEAZxn1i"],
+    port=db["5432"],
+    sslmode=db.get("sslmode", "require")
+)
+
+df = pd.read_sql("SELECT NOW() AS server_time;", conn)
+st.success("✅ Connected to Neon Database")
+st.write(df)
+
 
 # Cloud-compatible database module
 try:
