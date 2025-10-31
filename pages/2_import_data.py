@@ -10,8 +10,16 @@ db = st.secrets["connections"]["neon"]
 uploaded_file = st.file_uploader("📁 Upload CSV file", type=["csv"])
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.dataframe(df.head())
+    import csv
+
+try:
+    df = pd.read_csv(uploaded_file, encoding="utf-8", sep=None, engine="python")
+except Exception:
+    uploaded_file.seek(0)
+    df = pd.read_csv(uploaded_file, encoding="latin1", sep=None, engine="python")
+
+    st.write(f"✅ Loaded {len(df)} rows and {len(df.columns)} columns")
+st.dataframe(df.head())
 
     table_choice = st.selectbox("Pilih tabel tujuan:", ["members", "sales"])
 
