@@ -4,3 +4,4 @@ numpy
 openpyxl  
 openpyxl 
 pyodbc 
+psycopg2-binary
