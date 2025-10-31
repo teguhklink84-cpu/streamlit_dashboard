@@ -7,10 +7,11 @@ import pandas as pd
 import io
 from datetime import datetime
 
+# Ambil konfigurasi dari secrets.toml
 db = st.secrets["connections"]["neon"]
 
 conn = psycopg2.connect(
-    host=db["ep-dawn-firefly-a1j273g4-pooler.ap-southeast-1.aws.neon.tech"],
+    host=db["host"],
     database=db["neondb"],
     user=db["neondb_owner"],
     password=db["npg_HCP4qEAZxn1i"],
