@@ -7,7 +7,7 @@ import pandas as pd
 import io
 from datetime import datetime
 
-neon_db = st.secrets["connections"]["neon"]
+db = st.secrets["connections"]["neon"]
 
 conn = psycopg2.connect(
     host=db["ep-dawn-firefly-a1j273g4-pooler.ap-southeast-1.aws.neon.tech"],
