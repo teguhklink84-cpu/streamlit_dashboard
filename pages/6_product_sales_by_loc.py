@@ -56,12 +56,22 @@ with st.form("filter_form"):
         end_date = st.date_input("Tanggal Akhir")
     
     with col2:
-        # Dropdown produk yang menggabungkan kode dan nama
-        produk_options = ["ALL"] + sorted(produk_df["produk_display"].unique().tolist())
-        selected_produk = st.selectbox("Pilih Produk", produk_options)
+        # MULTI-SELECT untuk produk menggunakan multiselect
+        produk_options = sorted(produk_df["produk_display"].unique().tolist())
+        selected_produk = st.multiselect(
+            "Pilih Produk (bisa pilih lebih dari 1):",
+            options=produk_options,
+            placeholder="Pilih satu atau lebih produk..."
+        )
         
     with col3:
-        loccd = st.selectbox("Kode Lokasi", ["ALL"] + sorted(loc_df["loccd"].tolist()))
+        # MULTI-SELECT untuk lokasi menggunakan multiselect
+        loc_options = sorted(loc_df["loccd"].tolist())
+        selected_locations = st.multiselect(
+            "Pilih Lokasi (bisa pilih lebih dari 1):",
+            options=loc_options,
+            placeholder="Pilih satu atau lebih lokasi..."
+        )
 
     submitted = st.form_submit_button("🚀 Jalankan Query")
 
@@ -77,17 +87,11 @@ if submitted:
             sslmode=db.get("sslmode", "require")
         )
 
-        # Ekstrak kodeProduk dari pilihan yang digabung
-        if selected_produk != "ALL":
-            kode_produk_selected = selected_produk.split(" - ")[0]
-            nama_produk_selected = selected_produk.split(" - ")[1]
-        else:
-            kode_produk_selected = "ALL"
-            nama_produk_selected = "ALL"
-
+        # Query dasar dengan createdt
         query = f"""
             SELECT 
                 bnsperiod,
+                createdt,
                 loccd,
                 "kodeProduk",
                 "namaProduk",
@@ -97,18 +101,31 @@ if submitted:
         """
         params = [start_date, end_date]
 
-        if selected_produk != "ALL":
-            query += ' AND "kodeProduk" = %s AND "namaProduk" = %s'
-            params.append(kode_produk_selected)
-            params.append(nama_produk_selected)
+        # Filter untuk produk (bisa multiple)
+        if selected_produk:
+            produk_conditions = []
+            for produk in selected_produk:
+                kode_produk_selected = produk.split(" - ")[0]
+                nama_produk_selected = produk.split(" - ")[1]
+                produk_conditions.append(f'("kodeProduk" = %s AND "namaProduk" = %s)')
+                params.extend([kode_produk_selected, nama_produk_selected])
+            
+            if produk_conditions:
+                query += " AND (" + " OR ".join(produk_conditions) + ")"
 
-        if loccd != "ALL":
-            query += ' AND loccd = %s'
-            params.append(loccd)
+        # Filter untuk lokasi (bisa multiple)
+        if selected_locations:
+            loc_conditions = []
+            for loc in selected_locations:
+                loc_conditions.append("loccd = %s")
+                params.append(loc)
+            
+            if loc_conditions:
+                query += " AND (" + " OR ".join(loc_conditions) + ")"
 
         query += """
-            GROUP BY bnsperiod, loccd, "kodeProduk", "namaProduk"
-            ORDER BY bnsperiod DESC, loccd, total_qty DESC
+            GROUP BY bnsperiod, createdt, loccd, "kodeProduk", "namaProduk"
+            ORDER BY bnsperiod DESC, createdt DESC, loccd, total_qty DESC
         """
 
         df = pd.read_sql_query(query, conn, params=params)
@@ -128,6 +145,7 @@ if submitted:
             with col4:
                 st.metric("Unique Locations", df['loccd'].nunique())
             
+            # Tampilkan dataframe dengan createdt
             st.dataframe(df, use_container_width=True)
 
             # 💾 Download tombol
@@ -146,7 +164,7 @@ if submitted:
             # Tab untuk berbagai jenis visualisasi
             tab1, tab2, tab3, tab4, tab5 = st.tabs([
                 "🏆 Top Performers", 
-                "📊 Tren Bulanan", 
+                "📊 Tren Berdasarkan Tanggal", 
                 "🗺️ Distribusi Geografis", 
                 "📦 Performance Produk", 
                 "📈 Analisis Komparatif"
@@ -187,17 +205,29 @@ if submitted:
                     st.plotly_chart(fig_locations, use_container_width=True)
             
             with tab2:
-                # TREN BULANAN
+                # TREN BERDASARKAN TANGGAL YANG DIPILIH
+                st.subheader(f"📈 Tren Berdasarkan {date_type}")
+                
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Tren bulanan total
-                    monthly_trend = df.groupby('bnsperiod')['total_qty'].sum().reset_index()
+                    # Tren berdasarkan date_type yang dipilih
+                    if date_type == 'createdt':
+                        trend_data = df.groupby('createdt')['total_qty'].sum().reset_index()
+                        x_col = 'createdt'
+                    elif date_type == 'batchdt':
+                        # Jika perlu menambahkan batchdt ke query
+                        trend_data = df.groupby('bnsperiod')['total_qty'].sum().reset_index()
+                        x_col = 'bnsperiod'
+                    else:  # bnsperiod
+                        trend_data = df.groupby('bnsperiod')['total_qty'].sum().reset_index()
+                        x_col = 'bnsperiod'
+                    
                     fig_trend = px.line(
-                        monthly_trend,
-                        x='bnsperiod',
+                        trend_data,
+                        x=x_col,
                         y='total_qty',
-                        title='📈 Tren Penjualan Bulanan',
+                        title=f'📈 Tren Penjualan Berdasarkan {date_type}',
                         markers=True
                     )
                     fig_trend.update_traces(line=dict(width=3))
@@ -205,23 +235,33 @@ if submitted:
                     st.plotly_chart(fig_trend, use_container_width=True)
                 
                 with col2:
-                    # Heatmap bulanan per produk
-                    heatmap_data = df.pivot_table(
-                        values='total_qty', 
-                        index='namaProduk', 
-                        columns='bnsperiod', 
-                        aggfunc='sum'
-                    ).fillna(0)
+                    # Tren dengan breakdown produk
+                    if date_type == 'createdt':
+                        trend_by_product = df.groupby(['createdt', 'namaProduk'])['total_qty'].sum().reset_index()
+                        x_col_product = 'createdt'
+                    elif date_type == 'batchdt':
+                        trend_by_product = df.groupby(['bnsperiod', 'namaProduk'])['total_qty'].sum().reset_index()
+                        x_col_product = 'bnsperiod'
+                    else:
+                        trend_by_product = df.groupby(['bnsperiod', 'namaProduk'])['total_qty'].sum().reset_index()
+                        x_col_product = 'bnsperiod'
                     
-                    if not heatmap_data.empty:
-                        fig_heatmap = px.imshow(
-                            heatmap_data,
-                            title='🔥 Heatmap Produk vs Periode',
-                            color_continuous_scale='YlOrRd',
-                            aspect="auto"
-                        )
-                        fig_heatmap.update_layout(height=400)
-                        st.plotly_chart(fig_heatmap, use_container_width=True)
+                    fig_trend_product = px.line(
+                        trend_by_product,
+                        x=x_col_product,
+                        y='total_qty',
+                        color='namaProduk',
+                        title=f'📊 Tren Penjualan per Produk ({date_type})',
+                        markers=True
+                    )
+                    fig_trend_product.update_layout(height=400, legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="right",
+                        x=1
+                    ))
+                    st.plotly_chart(fig_trend_product, use_container_width=True)
             
             with tab3:
                 # DISTRIBUSI GEOGRAFIS
@@ -300,42 +340,42 @@ if submitted:
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Radar chart untuk perbandingan produk
-                    radar_data = df.groupby(['namaProduk', 'loccd'])['total_qty'].sum().reset_index()
-                    top_5_products = df.groupby('namaProduk')['total_qty'].sum().nlargest(5).index
-                    radar_data = radar_data[radar_data['namaProduk'].isin(top_5_products)]
-                    
-                    # Pivot untuk radar chart
-                    pivot_radar = radar_data.pivot(index='loccd', columns='namaProduk', values='total_qty').fillna(0)
-                    
-                    fig_radar = go.Figure()
-                    for product in pivot_radar.columns:
-                        fig_radar.add_trace(go.Scatterpolar(
-                            r=pivot_radar[product].values,
-                            theta=pivot_radar.index,
-                            fill='toself',
-                            name=product
-                        ))
-                    
-                    fig_radar.update_layout(
-                        polar=dict(radialaxis=dict(visible=True)),
-                        title='🔄 Perbandingan Produk di Berbagai Lokasi (Radar Chart)',
-                        height=500
+                    # Bar chart perbandingan produk di lokasi
+                    comparison_data = df.groupby(['namaProduk', 'loccd'])['total_qty'].sum().reset_index()
+                    fig_comparison = px.bar(
+                        comparison_data,
+                        x='loccd',
+                        y='total_qty',
+                        color='namaProduk',
+                        title='📊 Perbandingan Penjualan Produk per Lokasi',
+                        barmode='group'
                     )
-                    st.plotly_chart(fig_radar, use_container_width=True)
+                    fig_comparison.update_layout(height=500, xaxis_tickangle=-45)
+                    st.plotly_chart(fig_comparison, use_container_width=True)
                 
                 with col2:
-                    # Area chart tren kumulatif
-                    df_sorted = df.sort_values('bnsperiod')
-                    cumulative_data = df_sorted.groupby(['bnsperiod', 'namaProduk'])['total_qty'].sum().reset_index()
+                    # Area chart tren kumulatif berdasarkan date_type
+                    if date_type == 'createdt':
+                        df_sorted = df.sort_values('createdt')
+                        cumulative_data = df_sorted.groupby(['createdt', 'namaProduk'])['total_qty'].sum().reset_index()
+                        x_col_cumulative = 'createdt'
+                    elif date_type == 'batchdt':
+                        df_sorted = df.sort_values('bnsperiod')
+                        cumulative_data = df_sorted.groupby(['bnsperiod', 'namaProduk'])['total_qty'].sum().reset_index()
+                        x_col_cumulative = 'bnsperiod'
+                    else:
+                        df_sorted = df.sort_values('bnsperiod')
+                        cumulative_data = df_sorted.groupby(['bnsperiod', 'namaProduk'])['total_qty'].sum().reset_index()
+                        x_col_cumulative = 'bnsperiod'
+                    
                     cumulative_data['cumulative'] = cumulative_data.groupby('namaProduk')['total_qty'].cumsum()
                     
                     fig_area = px.area(
                         cumulative_data,
-                        x='bnsperiod',
+                        x=x_col_cumulative,
                         y='cumulative',
                         color='namaProduk',
-                        title='📊 Tren Kumulatif Penjualan per Produk',
+                        title=f'📈 Tren Kumulatif Penjualan per Produk ({date_type})',
                         height=500
                     )
                     st.plotly_chart(fig_area, use_container_width=True)
@@ -351,14 +391,25 @@ with st.expander("ℹ️ Cara Penggunaan"):
     st.markdown("""
     ### 📋 Panduan Penggunaan Dashboard
     
-    1. **Filter Data**: Pilih jenis tanggal, rentang waktu, produk, dan lokasi
+    1. **Filter Data**: 
+       - Pilih jenis tanggal (createdt, batchdt, atau bnsperiod)
+       - Atur rentang waktu mulai dan akhir
+       - Pilih satu atau lebih produk (bisa multiple selection)
+       - Pilih satu atau lebih lokasi (bisa multiple selection)
+    
     2. **Jalankan Query**: Klik tombol 'Jalankan Query' untuk memproses data
+    
     3. **Analisis Visual**: Jelajahi berbagai visualisasi di 5 tab berbeda:
        - **🏆 Top Performers**: Produk dan lokasi terbaik
-       - **📊 Tren Bulanan**: Perkembangan penjualan over time
+       - **📊 Tren Berdasarkan Tanggal**: Tren berdasarkan tanggal yang dipilih (createdt/batchdt/bnsperiod)
        - **🗺️ Distribusi Geografis**: Penyebaran penjualan per lokasi
        - **📦 Performance Produk**: Analisis mendalam per produk
        - **📈 Analisis Komparatif**: Perbandingan multi-dimensi
     
     4. **Download Data**: Export hasil dalam format CSV untuk analisis lebih lanjut
+    
+    ### 🆕 Fitur Baru:
+    - **Multi-select** untuk produk dan lokasi
+    - **Kolom createdt** ditampilkan dalam hasil query
+    - **Tren dinamis** berdasarkan jenis tanggal yang dipilih
     """)
