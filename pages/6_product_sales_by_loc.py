@@ -75,14 +75,15 @@ if run_query:
 
             # Base query
             query = f"""
-                SELECT 
-                    bnsperiod,
-                    loccd,
-                    "namaProduk",
-                    SUM("totalQty_contrib"::numeric) AS total_qty
-                FROM sales_data
-                WHERE "{date_type}" BETWEEN %s AND %s
-            """
+    SELECT 
+        bnsperiod,
+        loccd,
+        "namaProduk",
+        SUM("totalQty_contrib"::numeric) AS total_qty
+    FROM sales_data
+    WHERE ("{date_type}"::date) BETWEEN %s AND %s
+"""
+
 
             params = [start_date, end_date]
 
