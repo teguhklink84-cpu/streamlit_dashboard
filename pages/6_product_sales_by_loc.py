@@ -7,24 +7,73 @@ st.title("📊 Laporan Penjualan per Produk & Lokasi")
 
 db = st.secrets["connections"]["neon"]
 
-# 🔍 Form Filter di atas
+# 🔌 Koneksi database
+@st.cache_data
+def get_data(query):
+    conn = psycopg2.connect(
+        host=db["host"],
+        database=db["database"],
+        user=db["user"],
+        password=db["password"],
+        port=db["port"],
+        sslmode=db.get("sslmode", "require")
+    )
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
+
+# 🔍 Ambil master dropdown
+produk_df = get_data("""
+    SELECT DISTINCT "kodeProduk", "namaProduk" 
+    FROM sales_data 
+    WHERE "kodeProduk" IS NOT NULL AND "namaProduk" IS NOT NULL
+    ORDER BY "kodeProduk"
+""")
+loc_df = get_data("""
+    SELECT DISTINCT loccd 
+    FROM sales_data 
+    WHERE loccd IS NOT NULL 
+    ORDER BY loccd
+""")
+
+# 📋 Form Filter
 st.subheader("🎯 Filter Data Penjualan")
 
 with st.form("filter_form"):
     col1, col2, col3 = st.columns(3)
     with col1:
         date_type = st.selectbox("Pilih jenis tanggal:", ["createdt", "batchdt", "bnsperiod"])
-        kode_produk = st.text_input("Kode Produk (optional)")
-    with col2:
         start_date = st.date_input("Tanggal Mulai")
-        nama_produk = st.text_input("Nama Produk (optional)")
-    with col3:
+    with col2:
         end_date = st.date_input("Tanggal Akhir")
-        loccd = st.text_input("Kode Lokasi (optional, ketik 'ALL' untuk semua)")
+        loccd = st.selectbox("Kode Lokasi", ["ALL"] + sorted(loc_df["loccd"].tolist()))
+    with col3:
+        # dropdown dinamis
+        kode_produk = st.selectbox("Kode Produk", ["ALL"] + sorted(produk_df["kodeProduk"].unique().tolist()))
+        # kalau pilih kode_produk → namaProduk auto filter
+        if kode_produk != "ALL":
+            nama_produk_opsi = produk_df.loc[
+                produk_df["kodeProduk"] == kode_produk, "namaProduk"
+            ].unique().tolist()
+        else:
+            nama_produk_opsi = sorted(produk_df["namaProduk"].unique().tolist())
+        nama_produk = st.selectbox("Nama Produk", ["ALL"] + nama_produk_opsi)
 
     submitted = st.form_submit_button("🚀 Jalankan Query")
 
-# 📊 Eksekusi Query setelah tombol ditekan
+# ⚙️ Logika sinkronisasi 2 arah
+# Jika user memilih namaProduk, otomatis filter kodeProduk juga
+if submitted and kode_produk == "ALL" and nama_produk != "ALL":
+    try:
+        kode_produk_filter = produk_df.loc[
+            produk_df["namaProduk"] == nama_produk, "kodeProduk"
+        ].unique().tolist()
+        if len(kode_produk_filter) == 1:
+            kode_produk = kode_produk_filter[0]
+    except Exception:
+        pass
+
+# 📊 Jalankan query hanya setelah submit
 if submitted:
     try:
         conn = psycopg2.connect(
@@ -47,15 +96,15 @@ if submitted:
         """
         params = [start_date, end_date]
 
-        if kode_produk:
-            query += ' AND "kodeProduk" ILIKE %s'
-            params.append(f"%{kode_produk}%")
+        if kode_produk != "ALL":
+            query += ' AND "kodeProduk" = %s'
+            params.append(kode_produk)
 
-        if nama_produk:
-            query += ' AND "namaProduk" ILIKE %s'
-            params.append(f"%{nama_produk}%")
+        if nama_produk != "ALL":
+            query += ' AND "namaProduk" = %s'
+            params.append(nama_produk)
 
-        if loccd and loccd.upper() != "ALL":
+        if loccd != "ALL":
             query += ' AND loccd = %s'
             params.append(loccd)
 
@@ -71,8 +120,8 @@ if submitted:
             st.success(f"✅ {len(df)} baris ditemukan.")
             st.dataframe(df, use_container_width=True)
 
-            # 💾 Tambahkan tombol download
-            csv = df.to_csv(index=False).encode('utf-8')
+            # 💾 Download tombol
+            csv = df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="📥 Download CSV",
                 data=csv,
@@ -81,6 +130,5 @@ if submitted:
             )
         else:
             st.warning("⚠️ Tidak ada data ditemukan untuk filter tersebut.")
-
     except Exception as e:
         st.error(f"❌ Error saat menjalankan query: {e}")
