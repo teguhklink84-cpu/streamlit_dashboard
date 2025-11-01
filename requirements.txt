@@ -6,3 +6,5 @@ openpyxl
 pyodbc 
 psycopg2-binary
 plotly
+plotly.express 
+plotly.graph_objects
