@@ -71,5 +71,5 @@ else:
 
     # Show raw SQL sample option
     with st.expander("🔎 SQL Sample (lihat 50 baris)"):
-        st.code('SELECT * FROM "sales_data" LIMIT 50;')
+        st.code('SELECT * FROM "sales_data" LIMIT 100000;')
         st.dataframe(df.head(50))
